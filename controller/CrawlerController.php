@@ -3,6 +3,7 @@ define('VIEW_PATH', ROOT . 'view/admin/');
 
 use QL\QueryList;
 
+
 class CrawlerModel
 {
   public $name;
@@ -56,9 +57,9 @@ class CrawlerModel
         "down" => $vars['field_down_' . $i]
       ]);
     }
-    $this->fields = array_map(function ($item) {
-      return new CrawlerFieldModel($item);
-    }, array_merge((array)$vars['fields'], $fields));
+    // $this->fields = array_map(function ($item) {
+    //   return new CrawlerFieldModel($item);
+    // }, array_merge((array)$vars['fields'], $fields));
   }
   function is_domain_url($url)
   {
@@ -234,6 +235,7 @@ class CrawlerController
     // 新增任务
     if (!empty($_POST['add_task'])) {
       $this->info = new CrawlerModel();
+      var_dump($this->info);
     }
     // 删除任务 
     else if (!empty($_POST['delete_task'])) {
@@ -360,8 +362,8 @@ class CrawlerController
     if (!$filesystem->fileExists($details['path'])) {
       $filesystem->createDirectory($details['path']);
     }
-    if (!$filesystem->fileExists($details['path']."/html")) {
-      $filesystem->createDirectory($details['path']."/html");
+    if (!$filesystem->fileExists($details['path'] . "/html")) {
+      $filesystem->createDirectory($details['path'] . "/html");
     }
     $details['collect_scan_urls'] = $info->scan_urls;
 
@@ -437,53 +439,102 @@ class CrawlerController
    */
   function start($slug)
   {
+    // var_dump($slug);
     if (!isset($this->list[$slug])) return;
     $this->info = $this->list[$slug];
-    // 获取任务详情
-    $details = $this->get_details($this->info->slug);
-    // 隐藏页面启动按钮
-    echo "<script>$('[name=start_crawler_task][task-name={$this->info->slug}]').toggle()</script>";
-    echo "<script>console.group('[Crawler Task] {$slug}');</script>";
-    flush();
-    // 入口页
-    while ($this->info->collected_scan_urls_num < $this->info->collect_scan_urls_num) {
-      $url = $details['collect_scan_urls'][$this->info->collected_scan_urls_num];
-      echo "<script>console.group('[Scan Urls][{$this->info->collected_scan_urls_num}] {$url}');</script>";
-      flush();
-      $this->query_scan_url($url, $details);
-      $this->info->collected_scan_urls_num++;
-      $this->save_config($details);
-      echo "<script>console.groupEnd();</script>";
-      flush();
-    }
+    // var_dump($this->info);
 
-    // 列表页
-    while ($this->info->collected_list_urls_num < $this->info->collect_list_urls_num) {
-      $url = $details['collect_list_urls'][$this->info->collected_list_urls_num];
-      echo "<script>console.group('[List Urls][{$this->info->collected_list_urls_num}] {$url}');</script>";
-      flush();
-      $this->query_scan_url($url, $details);
-      $this->info->collected_list_urls_num++;
-      $this->save_config($details);
-      echo "<script>console.groupEnd();</script>";
-      flush();
-    }
-    // 内容页
-    while ($this->info->collected_content_urls_num < $this->info->collect_content_urls_num) {
-      $url = $details['collect_content_urls'][$this->info->collected_content_urls_num];
-      echo "<script>console.group('[Content Urls][{$this->info->collected_content_urls_num}] {$url}');</script>";
-      flush();
-      $html = $this->query_scan_url($url, $details);
-      $this->info->collected_content_urls_num++;
-      if (!empty($html)) {
-        $this->query_content_fields($html, $details);
-      }
-      $this->save_config($details);
-      echo "<script>console.groupEnd();</script>";
-      flush();
-    }
-    echo "<script>$('[name=start_crawler_task][task-name={$this->info->slug}]').toggle()</script>";
-    echo "<script>$('[name=stop_task][task-name={$this->info->slug}]').toggle()</script>";
+    require_once __DIR__ . '/PhpSpider.php';
+    $spider = new PhpSpider((array)$this->info);
+    // var_dump($spider);
+
+    $spider->on_status_code = function ($status_code, $url, $content, $spider) {
+      // var_dump([
+      //   "collect_urls_num" => $spider::$collect_urls_num,
+      //   "collected_urls_num" => $spider::$collected_urls_num,
+      //   "collect_scan_urls_num" => $spider::$collect_scan_urls_num,
+      //   "collected_scan_urls_num" => $spider::$collected_scan_urls_num,
+      //   "collect_list_urls_num" => $spider::$collect_list_urls_num,
+      //   "collected_list_urls_num" => $spider::$collected_list_urls_num,
+      //   "collect_content_urls_num" => $spider::$collect_content_urls_num,
+      //   "collected_content_urls_num" => $spider::$collected_content_urls_num,
+      //   "fields_num" => $spider::$fields_num,
+      // ]);
+
+      echo "<script>$('[name=collected_scan_urls][task-name={$this->info->slug}]').text({$spider::$collected_scan_urls_num})</script>";
+      // collect_list_urls
+      echo "<script>$('[name=collect_list_urls][task-name={$this->info->slug}]').text({$spider::$collect_list_urls_num})</script>";
+      // collected_list_urls
+      echo "<script>$('[name=collected_list_urls][task-name={$this->info->slug}]').text({$spider::$collected_list_urls_num})</script>";
+      // collect_content_urls
+      echo "<script>$('[name=collect_content_urls][task-name={$this->info->slug}]').text({$spider::$collect_content_urls_num})</script>";
+      // collected_content_urls
+      echo "<script>$('[name=collected_content_urls][task-name={$this->info->slug}]').text({$spider::$collected_content_urls_num})</script>";
+      // collected_content_fields
+      echo "<script>$('[name=collected_content_fields][task-name={$this->info->slug}]').text({$spider::$fields_num})</script>";
+    };
+    $spider->on_download_page = function ($page, $spider) {
+      global $filesystem;
+      $url_parse = parse_url($page['url']);
+      $path = "/upload/.crawler/{$this->info->slug}/html/" . preg_replace("/\//", "_", $url_parse['host'] . $url_parse['path']);
+      $filesystem->write($path, $page['raw']);
+      return $page;
+    };
+    $spider->on_extract_page = function ($page, $data) {
+      var_dump("on_extract_page");
+      var_dump($data);
+      return $data;
+    };
+    $spider->start();
+    // var_dump($spider::$collect_urls_num);
+    // (new PhpSpider((array)$this->info))->start();
+    // var_dump($spider);
+    // // 获取任务详情
+    // $details = $this->get_details($this->info->slug);
+    // var_dump($details);
+    // // 隐藏页面启动按钮
+    // echo "<script>$('[name=start_crawler_task][task-name={$this->info->slug}]').toggle()</script>";
+    // echo "<script>console.group('[Crawler Task] {$slug}');</script>";
+    // flush();
+    // // 入口页
+    // while ($this->info->collected_scan_urls_num < $this->info->collect_scan_urls_num) {
+    //   $url = $details['collect_scan_urls'][$this->info->collected_scan_urls_num];
+    //   echo "<script>console.group('[Scan Urls][{$this->info->collected_scan_urls_num}] {$url}');</script>";
+    //   flush();
+    //   $this->query_scan_url($url, $details);
+    //   $this->info->collected_scan_urls_num++;
+    //   $this->save_config($details);
+    //   echo "<script>console.groupEnd();</script>";
+    //   flush();
+    // }
+
+    // // 列表页
+    // while ($this->info->collected_list_urls_num < $this->info->collect_list_urls_num) {
+    //   $url = $details['collect_list_urls'][$this->info->collected_list_urls_num];
+    //   echo "<script>console.group('[List Urls][{$this->info->collected_list_urls_num}] {$url}');</script>";
+    //   flush();
+    //   $this->query_scan_url($url, $details);
+    //   $this->info->collected_list_urls_num++;
+    //   $this->save_config($details);
+    //   echo "<script>console.groupEnd();</script>";
+    //   flush();
+    // }
+    // // 内容页
+    // while ($this->info->collected_content_urls_num < $this->info->collect_content_urls_num) {
+    //   $url = $details['collect_content_urls'][$this->info->collected_content_urls_num];
+    //   echo "<script>console.group('[Content Urls][{$this->info->collected_content_urls_num}] {$url}');</script>";
+    //   flush();
+    //   $html = $this->query_scan_url($url, $details);
+    //   $this->info->collected_content_urls_num++;
+    //   if (!empty($html)) {
+    //     $this->query_content_fields($html, $details);
+    //   }
+    //   $this->save_config($details);
+    //   echo "<script>console.groupEnd();</script>";
+    //   flush();
+    // }
+    // echo "<script>$('[name=start_crawler_task][task-name={$this->info->slug}]').toggle()</script>";
+    // echo "<script>$('[name=stop_task][task-name={$this->info->slug}]').toggle()</script>";
     flush();
   }
 
