@@ -4,7 +4,14 @@ date_default_timezone_set('PRC');
 define('TIME', time());
 !defined('ROOT') && define('ROOT', str_replace("\\", "/", dirname(__FILE__)) . '/');
 
-require_once __DIR__ . "/vendor/autoload.php";
+/** 载入依赖 */
+if (is_dir(__DIR__ . '/vendor') && file_exists(__DIR__ . '/vendor/autoload.php')) {
+  require_once __DIR__ . '/vendor/autoload.php';
+} else if (file_exists(__DIR__ . '/../vendor/autoload.php')) { // 全局依赖
+  require_once __DIR__ . '/../vendor/autoload.php';
+} else {
+  exit('no exist composer dependencies');
+}
 
 $adapter = new League\Flysystem\Local\LocalFilesystemAdapter(__DIR__);
 $filesystem = new League\Flysystem\Filesystem($adapter);
